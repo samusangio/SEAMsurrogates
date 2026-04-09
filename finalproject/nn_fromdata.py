@@ -28,6 +28,7 @@ chmod +x ./nn_fromdata.py
 import argparse
 
 import torch
+import numpy as np
 from sklearn.preprocessing import StandardScaler
 
 from surmod import neural_network as nn, data_processing
@@ -165,7 +166,7 @@ def main():
         x_train, x_test, y_train, y_test = data_processing.split_data(
             df=df, LHD=LHD, n_train=num_train, seed=seed
         )
-    if fromFile:
+    else:
         # use this for already split import from files - imports all data from file, no need to specify -tr -te numbers
         traindf, testdf, validationdf = data_processing.load_data_from_file(
             dataset="HST",
