@@ -147,6 +147,9 @@ def train_neural_net(
     Returns:
         Tuple[nn.Module, List[float], List[float]]: Trained neural network model, list of training losses per epoch, and list of test losses per epoch.
     """
+    # Seed torch before any randomized model initialization or data shuffling.
+    torch.manual_seed(seed)
+
     # Specify fixed output and input sizes
     input_size = x_train.shape[1]
     output_size = 1
@@ -155,7 +158,13 @@ def train_neural_net(
 
     # Create a TensorDataset and DataLoader
     dataset = TensorDataset(x_train, y_train)
-    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    train_generator = torch.Generator().manual_seed(seed)
+    train_loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        generator=train_generator,
+    )
 
     # Initialize the neural network
     model = NeuralNet(input_size, hidden_sizes, output_size, initialize_weights_normal)
@@ -167,9 +176,6 @@ def train_neural_net(
     # Lists to store losses
     train_losses = []
     test_losses = []
-
-    # Set a random number generator seed for reproducibility
-    torch.manual_seed(seed)  # TODO double check
 
     # Training loop
     for epoch in range(num_epochs):
