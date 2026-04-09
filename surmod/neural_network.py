@@ -2,9 +2,10 @@
 Functions for neural network surrogates.
 """
 
+import copy
 from datetime import datetime
 import os
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import matplotlib.axes
 import matplotlib.pyplot as plt
@@ -129,6 +130,7 @@ def train_neural_net(
     batch_size: int,
     seed: int,
     initialize_weights_normal: bool,
+    patience: Optional[int] = None,
 ) -> Tuple[nn.Module, List[float], List[float]]:
     """
     Train a feedforward neural network and evaluate its performance.
@@ -136,16 +138,20 @@ def train_neural_net(
     Args:
         x_train (torch.Tensor): Training input features of shape (n_samples, n_features).
         y_train (torch.Tensor): Training target values of shape (n_samples,) or (n_samples, 1).
-        x_test (torch.Tensor): Test input features of shape (n_test_samples, n_features).
-        y_test (torch.Tensor): Test target values of shape (n_test_samples,) or (n_test_samples, 1).
+        x_test (torch.Tensor): Evaluation input features of shape (n_test_samples, n_features).
+        y_test (torch.Tensor): Evaluation target values of shape (n_test_samples,) or (n_test_samples, 1).
         hidden_sizes (List[int]): List specifying the number of units in each hidden layer.
         num_epochs (int): Number of epochs to train the network.
         learning_rate (float): Learning rate for the optimizer.
         batch_size (int): Number of samples per training batch.
         seed (int): Random seed for reproducibility.
         initialize_weights_normal (bool): If True, initialize weights with a normal distribution.
+        patience (Optional[int]): Stop early if the evaluation loss does not improve
+            for this many consecutive epochs. If None or non-positive, early
+            stopping is disabled.
     Returns:
-        Tuple[nn.Module, List[float], List[float]]: Trained neural network model, list of training losses per epoch, and list of test losses per epoch.
+        Tuple[nn.Module, List[float], List[float]]: Trained neural network model,
+            list of training losses per epoch, and list of evaluation losses per epoch.
     """
     # Seed torch before any randomized model initialization or data shuffling.
     torch.manual_seed(seed)
@@ -176,6 +182,10 @@ def train_neural_net(
     # Lists to store losses
     train_losses = []
     test_losses = []
+    best_eval_loss = float("inf")
+    best_epoch = 0
+    best_state_dict = copy.deepcopy(model.state_dict())
+    epochs_without_improvement = 0
 
     # Training loop
     for epoch in range(num_epochs):
@@ -209,15 +219,33 @@ def train_neural_net(
         with torch.no_grad():
             test_outputs = model(x_test)
             test_loss = criterion(test_outputs, y_test.view(-1, 1))
-            test_losses.append(test_loss.item())
+            test_loss_value = test_loss.item()
+            test_losses.append(test_loss_value)
+
+        if test_loss_value < best_eval_loss:
+            best_eval_loss = test_loss_value
+            best_epoch = epoch + 1
+            best_state_dict = copy.deepcopy(model.state_dict())
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
 
         # Print the loss every 10 epochs
         if (epoch + 1) % 10 == 0:
             print(
                 f"Epoch [{epoch + 1}/{num_epochs}], "
                 f"Training Loss (MSE): {avg_train_loss:.5f}, "
-                f"Testing Loss (MSE): {test_loss.item():.5f}"
+                f"Testing Loss (MSE): {test_loss_value:.5f}"
             )
+
+        if patience is not None and patience > 0 and epochs_without_improvement >= patience:
+            print(
+                f"Early stopping at epoch {epoch + 1}/{num_epochs}. "
+                f"Best evaluation loss {best_eval_loss:.5f} was reached at epoch {best_epoch}."
+            )
+            break
+
+    model.load_state_dict(best_state_dict)
 
     print("Training finished!\n")
 

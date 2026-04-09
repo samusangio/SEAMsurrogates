@@ -95,6 +95,12 @@ def parse_arguments() -> argparse.Namespace:
         help="Number of training epochs per hyperparameter evaluation.",
     )
     parser.add_argument(
+        "--patience",
+        type=int,
+        default=20,
+        help="Early-stopping patience for validation loss during BO evaluations. Set to 0 to disable.",
+    )
+    parser.add_argument(
         "-in",
         "--num_init",
         type=int,
@@ -249,6 +255,7 @@ def evaluate_config(
     y_val: torch.Tensor,
     seed: int,
     num_epochs: int,
+    patience: int | None,
 ) -> dict[str, float]:
     """Train the NN for one configuration and return validation metrics."""
     start_time = time.perf_counter()
@@ -263,6 +270,7 @@ def evaluate_config(
         config.batch_size,
         seed,
         initialize_weights_normal=True,
+        patience=patience,
     )
     elapsed = time.perf_counter() - start_time
 
@@ -359,6 +367,7 @@ def run_final_training(
         best_config.batch_size,
         seed,
         initialize_weights_normal=True,
+        patience=None,
     )
 
     model.eval()
@@ -393,6 +402,7 @@ def main() -> None:
     """Run Bayesian optimization for HST drag NN hyperparameters."""
     args = parse_arguments()
     rng = np.random.RandomState(args.seed)
+    patience = None if args.patience <= 0 else args.patience
 
     candidates = build_candidates(args)
     if not candidates:
@@ -451,6 +461,7 @@ def main() -> None:
             y_val_t,
             args.seed,
             args.num_epochs,
+            patience,
         )
         scores[int(candidate_index)] = metrics["best_val_objective"]
         metrics_by_index[int(candidate_index)] = metrics
@@ -504,6 +515,7 @@ def main() -> None:
             y_val_t,
             args.seed,
             args.num_epochs,
+            patience,
         )
         scores[next_index] = metrics["best_val_objective"]
         metrics_by_index[next_index] = metrics
