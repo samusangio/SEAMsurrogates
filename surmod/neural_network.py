@@ -21,6 +21,13 @@ from botorch.test_functions.synthetic import (
 )
 from torch.utils.data import DataLoader, TensorDataset
 
+if torch.backends.mps.is_available():
+    device = torch.device("mps")
+    print("MPS device found. Using MPS.")
+else:
+    device = torch.device("cpu")
+    print("MPS device not found. Using CPU.")
+device = torch.device("cpu")
 
 class NeuralNet(nn.Module):
     """
