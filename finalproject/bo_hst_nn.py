@@ -31,9 +31,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Sequence
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
@@ -401,138 +398,6 @@ def save_history(history: list[dict[str, object]]) -> Path:
     return history_path
 
 
-def _history_dataframe(history: list[dict[str, object]]) -> pd.DataFrame:
-    """Convert BO history records into a plotting-friendly dataframe."""
-    history_df = pd.DataFrame(history).copy()
-    history_df["eval_index"] = np.arange(1, len(history_df) + 1)
-    history_df["hidden_label"] = history_df["hidden_sizes"].apply(
-        lambda values: "-".join(str(value) for value in values)
-    )
-    history_df["num_layers"] = history_df["hidden_sizes"].apply(len)
-    history_df["log10_learning_rate"] = np.log10(history_df["learning_rate"])
-    history_df["running_best_val_mse"] = history_df["best_val_mse"].cummin()
-    history_df["improved"] = (
-        history_df["best_val_mse"] == history_df["running_best_val_mse"]
-    )
-    return history_df
-
-
-def plot_bo_history(
-    history: list[dict[str, object]],
-    objective_name: str = "HST",
-) -> list[Path]:
-    """Create summary plots for the BO tuning history."""
-    plots_dir = Path(__file__).resolve().parent / "plots"
-    plots_dir.mkdir(exist_ok=True)
-    timestamp = datetime.now().strftime("%m%d_%H%M%S")
-    history_df = _history_dataframe(history)
-    saved_paths: list[Path] = []
-
-    # Plot 1: validation MSE by evaluation, with incumbent best overlay.
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.scatter(
-        history_df["eval_index"],
-        history_df["best_val_mse"],
-        color="tab:blue",
-        alpha=0.75,
-        label="Evaluated config",
-    )
-    ax.plot(
-        history_df["eval_index"],
-        history_df["running_best_val_mse"],
-        color="tab:red",
-        linewidth=2,
-        label="Best so far",
-    )
-    ax.set_xlabel("BO Evaluation")
-    ax.set_ylabel("Validation MSE")
-    ax.set_title(f"{objective_name} NN Hyperparameter BO")
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-    plt.tight_layout()
-    incumbent_path = plots_dir / f"bo_hst_nn_incumbent_{timestamp}.png"
-    plt.savefig(incumbent_path)
-    plt.close(fig)
-    saved_paths.append(incumbent_path)
-
-    # Plot 2: hyperparameter trace over evaluation order.
-    fig, axes = plt.subplots(3, 1, figsize=(10, 9), sharex=True)
-    axes[0].plot(
-        history_df["eval_index"],
-        history_df["log10_learning_rate"],
-        marker="o",
-        color="tab:green",
-    )
-    axes[0].set_ylabel("log10(LR)")
-    axes[0].grid(True, alpha=0.3)
-
-    axes[1].plot(
-        history_df["eval_index"],
-        history_df["batch_size"],
-        marker="o",
-        color="tab:orange",
-    )
-    axes[1].set_ylabel("Batch Size")
-    axes[1].grid(True, alpha=0.3)
-
-    architecture_codes, architecture_labels = pd.factorize(history_df["hidden_label"])
-    axes[2].scatter(
-        history_df["eval_index"],
-        architecture_codes,
-        c=history_df["best_val_mse"],
-        cmap="viridis_r",
-        s=70,
-    )
-    axes[2].set_yticks(np.arange(len(architecture_labels)))
-    axes[2].set_yticklabels(architecture_labels)
-    axes[2].set_ylabel("Architecture")
-    axes[2].set_xlabel("BO Evaluation")
-    axes[2].grid(True, alpha=0.3)
-
-    improvement_indices = history_df.loc[history_df["improved"], "eval_index"]
-    for ax in axes:
-        for eval_index in improvement_indices:
-            ax.axvline(eval_index, color="0.8", linestyle="--", linewidth=0.8)
-
-    fig.suptitle(f"{objective_name} NN BO Hyperparameter Trace", y=0.98)
-    plt.tight_layout()
-    trace_path = plots_dir / f"bo_hst_nn_trace_{timestamp}.png"
-    plt.savefig(trace_path)
-    plt.close(fig)
-    saved_paths.append(trace_path)
-
-    # Plot 3: learning-rate / batch-size scatter colored by validation MSE.
-    fig, ax = plt.subplots(figsize=(10, 5))
-    scatter = ax.scatter(
-        history_df["log10_learning_rate"],
-        history_df["batch_size"],
-        c=history_df["best_val_mse"],
-        cmap="viridis_r",
-        s=80 + 25 * (history_df["num_layers"] - 1),
-        alpha=0.85,
-    )
-    for _, row in history_df.iterrows():
-        ax.annotate(
-            row["hidden_label"],
-            (row["log10_learning_rate"], row["batch_size"]),
-            textcoords="offset points",
-            xytext=(4, 4),
-            fontsize=8,
-            alpha=0.8,
-        )
-    cbar = plt.colorbar(scatter, ax=ax)
-    cbar.set_label("Validation MSE")
-    ax.set_xlabel("log10(Learning Rate)")
-    ax.set_ylabel("Batch Size")
-    ax.set_title(f"{objective_name} NN BO Performance by Hyperparameter")
-    ax.grid(True, alpha=0.3)
-    plt.tight_layout()
-    scatter_path = plots_dir / f"bo_hst_nn_scatter_{timestamp}.png"
-    plt.savefig(scatter_path)
-    plt.close(fig)
-    saved_paths.append(scatter_path)
-
-    return saved_paths
 
 
 def main() -> None:
@@ -692,15 +557,12 @@ def main() -> None:
     )
 
     history_path = save_history(history)
-    plot_paths = plot_bo_history(history, objective_name="HST")
 
     print("\nFinal train+validation -> test evaluation:")
     print(f"  test MSE={final_metrics['test_mse']:.6e}")
     print(f"  test RMSE={final_metrics['test_rmse']:.6e}")
     print(f"  test MAE={final_metrics['test_mae']:.6e}")
     print(f"  history saved to {history_path}")
-    for plot_path in plot_paths:
-        print(f"  plot saved to {plot_path}")
 
 
 if __name__ == "__main__":
