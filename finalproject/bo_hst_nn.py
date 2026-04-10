@@ -18,7 +18,7 @@ Usage examples:
 poetry run python finalproject/bo_hst_nn.py
 poetry run python finalproject/bo_hst_nn.py --num_epochs 200 --num_init 6 --num_iter 12
 poetry run python finalproject/bo_hst_nn.py --acquisition UCB --kappa 2.5
-poetry run python finalproject/bo_hst_nn.py --hidden_configs 64,64 64,64,64 128,128,64
+poetry run python finalproject/bo_hst_nn.py --layer_widths 32 64 128 --max_layers 3
 """
 
 from __future__ import annotations
@@ -44,14 +44,8 @@ from surmod import data_processing
 from surmod import gaussian_process_regression as gp
 from surmod import neural_network as nn
 
-
-DEFAULT_HIDDEN_CONFIGS = [
-    "64,64",
-    "128,128",
-    "64,64,64",
-    "128,128,64",
-    "128,64,32",
-]
+DEFAULT_LAYER_WIDTHS = [8 * n for n in range(1, 9)]
+DEFAULT_MAX_LAYERS = 3
 
 
 @dataclass(frozen=True)
@@ -63,21 +57,27 @@ class HyperparameterConfig:
     learning_rate: float
 
 
-def parse_hidden_config(text: str) -> tuple[int, ...]:
-    """Parse a comma-separated hidden-layer specification."""
-    try:
-        hidden_sizes = tuple(int(value) for value in text.split(",") if value.strip())
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(
-            f"Invalid hidden-layer configuration: {text!r}"
-        ) from exc
+def generate_hidden_configs(
+    layer_widths: list[int],
+    max_layers: int,
+) -> list[tuple[int, ...]]:
+    """Generate all hidden layer configurations from layer widths.
 
-    if not hidden_sizes:
-        raise argparse.ArgumentTypeError("Hidden-layer configuration cannot be empty.")
-    if any(width <= 0 for width in hidden_sizes):
-        raise argparse.ArgumentTypeError("Hidden-layer widths must be positive.")
+    Creates architectures with 1 to max_layers layers, where each layer
+    uses the same width (homogeneous architectures).
 
-    return hidden_sizes
+    Args:
+        layer_widths: List of possible layer widths.
+        max_layers: Maximum number of hidden layers.
+
+    Returns:
+        List of hidden layer configurations as tuples.
+    """
+    configs = []
+    for width in layer_widths:
+        for num_layers in range(1, max_layers + 1):
+            configs.append(tuple([width] * num_layers))
+    return configs
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -91,7 +91,7 @@ def parse_arguments() -> argparse.Namespace:
         "-n",
         "--num_epochs",
         type=int,
-        default=200,
+        default=5000,
         help="Number of training epochs per hyperparameter evaluation.",
     )
     parser.add_argument(
@@ -104,7 +104,7 @@ def parse_arguments() -> argparse.Namespace:
         "-in",
         "--num_init",
         type=int,
-        default=5,
+        default=2,
         help="Number of initial hyperparameter configurations to evaluate.",
     )
     parser.add_argument(
@@ -155,22 +155,28 @@ def parse_arguments() -> argparse.Namespace:
         "--batch_sizes",
         type=int,
         nargs="+",
-        default=[32, 64, 128],
+        default=[32, 48, 64, 96, 128],
         help="Batch sizes included in the discrete search space.",
     )
     parser.add_argument(
         "--learning_rates",
         type=float,
         nargs="+",
-        default=[3e-4, 1e-3, 3e-3],
+        default=[5e-4, 1e-3, 2e-3, 3e-3, 5e-3, 1e-2],
         help="Learning rates included in the discrete search space.",
     )
     parser.add_argument(
-        "--hidden_configs",
-        type=parse_hidden_config,
+        "--layer_widths",
+        type=int,
         nargs="+",
-        default=[parse_hidden_config(text) for text in DEFAULT_HIDDEN_CONFIGS],
-        help="Hidden-layer configurations as comma-separated widths.",
+        default=DEFAULT_LAYER_WIDTHS,
+        help="Layer widths to include in the search space.",
+    )
+    parser.add_argument(
+        "--max_layers",
+        type=int,
+        default=DEFAULT_MAX_LAYERS,
+        help="Maximum number of hidden layers.",
     )
 
     return parser.parse_args()
@@ -215,6 +221,7 @@ def to_float_tensors(
 
 def build_candidates(args: argparse.Namespace) -> list[HyperparameterConfig]:
     """Build the discrete hyperparameter candidate set."""
+    hidden_configs = generate_hidden_configs(args.layer_widths, args.max_layers)
     candidates = [
         HyperparameterConfig(
             hidden_sizes=hidden_sizes,
@@ -222,7 +229,7 @@ def build_candidates(args: argparse.Namespace) -> list[HyperparameterConfig]:
             learning_rate=learning_rate,
         )
         for hidden_sizes, batch_size, learning_rate in itertools.product(
-            args.hidden_configs, args.batch_sizes, args.learning_rates
+            hidden_configs, args.batch_sizes, args.learning_rates
         )
     ]
     return candidates
