@@ -412,6 +412,7 @@ def run_final_training(
     testdf: pd.DataFrame,
     num_epochs: int,
     seed: int,
+    patience=None,
 ) -> dict[str, float]:
     """Retrain the best configuration on train+test and evaluate on validation."""
     train_test_df = pd.concat([traindf, testdf], ignore_index=True)
@@ -437,7 +438,7 @@ def run_final_training(
         best_config.batch_size,
         seed,
         initialize_weights_normal=True,
-        patience=None,
+        patience=patience,
     )
 
     model.eval()
