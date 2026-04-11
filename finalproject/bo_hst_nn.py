@@ -91,7 +91,7 @@ def parse_arguments() -> argparse.Namespace:
         "-n",
         "--num_epochs",
         type=int,
-        default=5000,
+        default=10000,
         help="Number of training epochs per hyperparameter evaluation.",
     )
     parser.add_argument(
@@ -104,14 +104,14 @@ def parse_arguments() -> argparse.Namespace:
         "-in",
         "--num_init",
         type=int,
-        default=2,
+        default=3,
         help="Number of initial hyperparameter configurations to evaluate.",
     )
     parser.add_argument(
         "-it",
         "--num_iter",
         type=int,
-        default=10,
+        default=12,
         help="Number of BO acquisition iterations after initialization.",
     )
     parser.add_argument(
@@ -134,7 +134,7 @@ def parse_arguments() -> argparse.Namespace:
         "-s",
         "--seed",
         type=int,
-        default=12,
+        default=42,
         help="Random seed for candidate initialization and model training.",
     )
     parser.add_argument(
