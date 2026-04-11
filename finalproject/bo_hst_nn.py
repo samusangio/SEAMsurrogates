@@ -155,7 +155,7 @@ def parse_arguments() -> argparse.Namespace:
         "--batch_sizes",
         type=int,
         nargs="+",
-        default=[32, 48, 64, 96, 128],
+        default=[32, 64, 128, 256],
         help="Batch sizes included in the discrete search space.",
     )
     parser.add_argument(
