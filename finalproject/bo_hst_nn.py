@@ -240,13 +240,20 @@ def encode_config(
     max_hidden_layers: int,
 ) -> np.ndarray:
     """Encode one hyperparameter configuration for the GP surrogate."""
-    del max_hidden_layers
-    width = config.hidden_sizes[0]
+    log2_hidden_sizes = [float(np.log2(width)) for width in config.hidden_sizes]
+    width_deltas = [
+        current - previous
+        for previous, current in zip(log2_hidden_sizes[:-1], log2_hidden_sizes[1:])
+    ]
+    padded_width_deltas = width_deltas + [0.0] * (
+        max_hidden_layers - len(config.hidden_sizes)
+    )
 
     return np.array(
         [
             len(config.hidden_sizes),
-            np.log2(width),
+            log2_hidden_sizes[0],
+            *padded_width_deltas,
             np.log10(config.learning_rate),
             np.log2(config.batch_size),
         ],
@@ -316,10 +323,13 @@ def fit_surrogate(
 
 def get_encoded_feature_names(max_hidden_layers: int) -> list[str]:
     """Return the encoded BO feature names used by the GP surrogate."""
-    del max_hidden_layers
     return [
-        "depth",
-        "log2_width",
+        "num_layers",
+        "log2_hidden_size_1",
+        *[
+            f"delta_log2_hidden_size_{index}"
+            for index in range(2, max_hidden_layers + 1)
+        ],
         "log10_learning_rate",
         "log2_batch_size",
     ]
