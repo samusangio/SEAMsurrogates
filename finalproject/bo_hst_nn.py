@@ -97,7 +97,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--patience",
         type=int,
-        default=20,
+        default=50,
         help="Early-stopping patience for BO evaluation loss on the test split. Set to 0 to disable.",
     )
     parser.add_argument(
@@ -134,7 +134,7 @@ def parse_arguments() -> argparse.Namespace:
         "-s",
         "--seed",
         type=int,
-        default=42,
+        default=12,
         help="Random seed for candidate initialization and model training.",
     )
     parser.add_argument(
@@ -162,7 +162,7 @@ def parse_arguments() -> argparse.Namespace:
         "--learning_rates",
         type=float,
         nargs="+",
-        default=[5e-4, 1e-3, 2e-3, 3e-3, 5e-3, 1e-2],
+        default=[6e-4, 1e-3, 2e-3, 4e-3, 7e-3, 1e-2],
         help="Learning rates included in the discrete search space.",
     )
     parser.add_argument(
@@ -395,6 +395,34 @@ def run_final_training(
     }
 
 
+def find_fastest_config(
+    candidates: list[HyperparameterConfig],
+    batch_sizes: list[int],
+    learning_rates: list[float],
+) -> int:
+    """Find the index of the fastest-to-compute configuration."""
+    target_batch = max(batch_sizes)
+    target_lr = max(learning_rates)
+
+    # Find configs with 1 layer, largest batch, largest lr
+    matching = [
+        (i, config)
+        for i, config in enumerate(candidates)
+        if len(config.hidden_sizes) == 1
+        and config.batch_size == target_batch
+        and config.learning_rate == target_lr
+    ]
+
+    if not matching:
+        raise ValueError(
+            f"No configuration found with 1 layer, batch_size={target_batch}, "
+            f"learning_rate={target_lr}"
+        )
+
+    # Among matching configs, pick the one with smallest layer width
+    return min(matching, key=lambda x: x[1].hidden_sizes[0])[0]
+
+
 def save_history(history: list[dict[str, object]]) -> Path:
     """Save BO evaluation history to CSV."""
     output_dir = Path(__file__).resolve().parent / "output_log"
@@ -442,11 +470,17 @@ def main() -> None:
         [encode_config(config, max_hidden_layers) for config in candidates]
     )
 
+    # Select first initialization: fastest configuration
+    first_init_index = find_fastest_config(
+        candidates, args.batch_sizes, args.learning_rates
+    )
+
     print(f"Candidate configurations: {len(candidates)}")
     print(
         f"Evaluation budget: {args.num_init} initial + {args.num_iter} BO = "
         f"{total_evaluations}"
     )
+    print(f"First init (fastest): {format_config(candidates[first_init_index])}")
 
     observed_indices: list[int] = []
     remaining_indices = list(range(len(candidates)))
@@ -454,7 +488,20 @@ def main() -> None:
     scores: dict[int, float] = {}
     metrics_by_index: dict[int, dict[str, float]] = {}
 
-    initial_indices = rng.choice(len(candidates), size=args.num_init, replace=False)
+    initial_indices = [first_init_index]
+
+    # Select remaining initializations randomly, excluding the first
+    if args.num_init > 1:
+        remaining_candidate_indices = [
+            i for i in range(len(candidates)) if i != first_init_index
+        ]
+        additional_indices = rng.choice(
+            remaining_candidate_indices,
+            size=args.num_init - 1,
+            replace=False,
+        )
+        initial_indices.extend(additional_indices)
+
     for step_number, candidate_index in enumerate(initial_indices, start=1):
         observed_indices.append(int(candidate_index))
         remaining_indices.remove(int(candidate_index))
