@@ -245,7 +245,6 @@ def encode_config(
     )
     return np.array(
         [
-            len(config.hidden_sizes),
             *padded_hidden_sizes,
             np.log10(config.learning_rate),
             np.log2(config.batch_size),
@@ -312,6 +311,57 @@ def fit_surrogate(
     )
     gp_model.fit(x_obs_scaled, y_obs)
     return gp_model, hp_scaler
+
+
+def get_encoded_feature_names(max_hidden_layers: int) -> list[str]:
+    """Return the encoded BO feature names used by the GP surrogate."""
+    return [
+        *[f"hidden_size_{index}" for index in range(1, max_hidden_layers + 1)],
+        "log10_learning_rate",
+        "log2_batch_size",
+    ]
+
+
+def extract_length_scales(gp_model: GaussianProcessRegressor) -> np.ndarray:
+    """Extract GP kernel length scales across the supported kernel structures."""
+    kernels_to_check = [
+        gp_model.kernel_,
+        getattr(gp_model.kernel_, "k1", None),
+        getattr(getattr(gp_model.kernel_, "k1", None), "k2", None),
+        getattr(getattr(getattr(gp_model.kernel_, "k1", None), "k2", None), "k1", None),
+    ]
+
+    for kernel in kernels_to_check:
+        if kernel is not None and hasattr(kernel, "length_scale"):
+            return np.atleast_1d(np.asarray(kernel.length_scale, dtype=float))
+
+    raise ValueError(
+        f"Could not extract length scales from fitted kernel: {gp_model.kernel_}"
+    )
+
+
+def print_length_scale_summary(
+    gp_model: GaussianProcessRegressor,
+    feature_names: Sequence[str],
+) -> None:
+    """Print the fitted GP length scales for each encoded BO feature."""
+    length_scales = extract_length_scales(gp_model)
+
+    print("\nFinal GP length scales:")
+    if length_scales.size == 1:
+        print(
+            f"  shared across all BO features: {float(length_scales[0]):.6g}"
+        )
+        return
+
+    if length_scales.size != len(feature_names):
+        raise ValueError(
+            "Length-scale dimension mismatch: "
+            f"{length_scales.size} scales for {len(feature_names)} features."
+        )
+
+    for feature_name, length_scale in zip(feature_names, length_scales):
+        print(f"  {feature_name}: {float(length_scale):.6g}")
 
 
 def compute_acquisition_values(
@@ -431,8 +481,6 @@ def save_history(history: list[dict[str, object]]) -> Path:
     history_path = output_dir / f"bo_hst_nn_history_{timestamp}.csv"
     pd.DataFrame(history).to_csv(history_path, index=False)
     return history_path
-
-
 
 
 def main() -> None:
@@ -596,10 +644,15 @@ def main() -> None:
     best_index = max(scores, key=scores.get)
     best_config = candidates[best_index]
     best_metrics = metrics_by_index[best_index]
+    x_obs = encoded_candidates[observed_indices]
+    y_obs = np.array([scores[idx] for idx in observed_indices], dtype=float)
+    final_gp_model, _ = fit_surrogate(x_obs, y_obs, args.kernel, args.seed)
+    feature_names = get_encoded_feature_names(max_hidden_layers)
 
     print("\nBest BO configuration:")
     print(f"  {format_config(best_config)}")
     print(f"  test MSE={best_metrics['best_eval_mse']:.6e}")
+    print_length_scale_summary(final_gp_model, feature_names)
 
     final_metrics = run_final_training(
         best_config=best_config,
