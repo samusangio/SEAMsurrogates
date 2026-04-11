@@ -27,7 +27,6 @@ if torch.backends.mps.is_available():
 else:
     device = torch.device("cpu")
     print("MPS device not found. Using CPU.")
-device = torch.device("cpu")
 
 class NeuralNet(nn.Module):
     """
