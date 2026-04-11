@@ -162,7 +162,7 @@ def parse_arguments() -> argparse.Namespace:
         "--learning_rates",
         type=float,
         nargs="+",
-        default=[6e-4, 1e-3, 2e-3, 4e-3, 7e-3, 1e-2],
+        default=[6e-4, 1e-3, 4e-3, 7e-3, 1e-2],
         help="Learning rates included in the discrete search space.",
     )
     parser.add_argument(
@@ -674,6 +674,7 @@ def main() -> None:
         testdf=testdf,
         num_epochs=args.num_epochs,
         seed=args.seed,
+        patience=args.patience,
     )
 
     history_path = save_history(history)
