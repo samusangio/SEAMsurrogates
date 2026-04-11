@@ -9,9 +9,9 @@ optimization problem over a finite candidate set. It:
 1. Loads the HST drag train/validation/test splits.
 2. Standardizes inputs using training statistics only.
 3. Evaluates an initial set of hyperparameter candidates.
-4. Fits a GP surrogate on hyperparameter -> validation-score pairs.
+4. Fits a GP surrogate on hyperparameter -> test-score pairs.
 5. Acquires new candidates with a chosen acquisition function.
-6. Retrains the best configuration on train+validation and evaluates on test.
+6. Retrains the best configuration on train+test and evaluates on validation.
 
 Usage examples:
 
@@ -98,7 +98,7 @@ def parse_arguments() -> argparse.Namespace:
         "--patience",
         type=int,
         default=20,
-        help="Early-stopping patience for validation loss during BO evaluations. Set to 0 to disable.",
+        help="Early-stopping patience for BO evaluation loss on the test split. Set to 0 to disable.",
     )
     parser.add_argument(
         "-in",
@@ -258,19 +258,19 @@ def evaluate_config(
     config: HyperparameterConfig,
     x_train: torch.Tensor,
     y_train: torch.Tensor,
-    x_val: torch.Tensor,
-    y_val: torch.Tensor,
+    x_eval: torch.Tensor,
+    y_eval: torch.Tensor,
     seed: int,
     num_epochs: int,
     patience: int | None,
 ) -> dict[str, float]:
-    """Train the NN for one configuration and return validation metrics."""
+    """Train the NN for one configuration and return BO evaluation metrics."""
     start_time = time.perf_counter()
-    _, train_losses, val_losses = nn.train_neural_net(
+    _, train_losses, eval_losses = nn.train_neural_net(
         x_train,
         y_train,
-        x_val,
-        y_val,
+        x_eval,
+        y_eval,
         list(config.hidden_sizes),
         num_epochs,
         config.learning_rate,
@@ -281,14 +281,14 @@ def evaluate_config(
     )
     elapsed = time.perf_counter() - start_time
 
-    best_val_mse = float(min(val_losses))
-    final_val_mse = float(val_losses[-1])
+    best_eval_mse = float(min(eval_losses))
+    final_eval_mse = float(eval_losses[-1])
 
     return {
-        "best_val_mse": best_val_mse,
-        "final_val_mse": final_val_mse,
-        "best_val_objective": -best_val_mse,
-        "final_val_objective": -final_val_mse,
+        "best_eval_mse": best_eval_mse,
+        "final_eval_mse": final_eval_mse,
+        "best_eval_objective": -best_eval_mse,
+        "final_eval_objective": -final_eval_mse,
         "final_train_mse": float(train_losses[-1]),
         "fit_time_s": elapsed,
     }
@@ -350,24 +350,24 @@ def run_final_training(
     num_epochs: int,
     seed: int,
 ) -> dict[str, float]:
-    """Retrain the best configuration on train+validation and evaluate on test."""
-    train_val_df = pd.concat([traindf, validationdf], ignore_index=True)
+    """Retrain the best configuration on train+test and evaluate on validation."""
+    train_test_df = pd.concat([traindf, testdf], ignore_index=True)
 
-    x_train_val, y_train_val = dataframe_to_arrays(train_val_df)
-    x_test, y_test = dataframe_to_arrays(testdf)
+    x_train_final, y_train_final = dataframe_to_arrays(train_test_df)
+    x_validation, y_validation = dataframe_to_arrays(validationdf)
 
     x_scaler = StandardScaler()
-    x_train_val = x_scaler.fit_transform(x_train_val)
-    x_test = x_scaler.transform(x_test)
+    x_train_final = x_scaler.fit_transform(x_train_final)
+    x_validation = x_scaler.transform(x_validation)
 
-    x_train_val_t, y_train_val_t = to_float_tensors(x_train_val, y_train_val)
-    x_test_t, y_test_t = to_float_tensors(x_test, y_test)
+    x_train_final_t, y_train_final_t = to_float_tensors(x_train_final, y_train_final)
+    x_validation_t, y_validation_t = to_float_tensors(x_validation, y_validation)
 
-    model, train_losses, test_losses = nn.train_neural_net(
-        x_train_val_t,
-        y_train_val_t,
-        x_test_t,
-        y_test_t,
+    model, train_losses, validation_losses = nn.train_neural_net(
+        x_train_final_t,
+        y_train_final_t,
+        x_validation_t,
+        y_validation_t,
         list(best_config.hidden_sizes),
         num_epochs,
         best_config.learning_rate,
@@ -379,19 +379,19 @@ def run_final_training(
 
     model.eval()
     with torch.no_grad():
-        predictions = model(x_test_t).cpu().numpy().reshape(-1)
+        predictions = model(x_validation_t).cpu().numpy().reshape(-1)
 
-    y_test_np = y_test.reshape(-1)
-    test_mse = mean_squared_error(y_test_np, predictions)
-    test_rmse = float(np.sqrt(test_mse))
-    test_mae = mean_absolute_error(y_test_np, predictions)
+    y_validation_np = y_validation.reshape(-1)
+    validation_mse = mean_squared_error(y_validation_np, predictions)
+    validation_rmse = float(np.sqrt(validation_mse))
+    validation_mae = mean_absolute_error(y_validation_np, predictions)
 
     return {
         "final_train_mse": float(train_losses[-1]),
-        "final_test_mse_curve": float(test_losses[-1]),
-        "test_mse": float(test_mse),
-        "test_rmse": test_rmse,
-        "test_mae": float(test_mae),
+        "final_validation_mse_curve": float(validation_losses[-1]),
+        "validation_mse": float(validation_mse),
+        "validation_rmse": validation_rmse,
+        "validation_mae": float(validation_mae),
     }
 
 
@@ -428,14 +428,14 @@ def main() -> None:
 
     traindf, validationdf, testdf = load_hst_splits()
     x_train, y_train = dataframe_to_arrays(traindf)
-    x_val, y_val = dataframe_to_arrays(validationdf)
+    x_eval, y_eval = dataframe_to_arrays(testdf)
 
     x_scaler = StandardScaler()
     x_train = x_scaler.fit_transform(x_train)
-    x_val = x_scaler.transform(x_val)
+    x_eval = x_scaler.transform(x_eval)
 
     x_train_t, y_train_t = to_float_tensors(x_train, y_train)
-    x_val_t, y_val_t = to_float_tensors(x_val, y_val)
+    x_eval_t, y_eval_t = to_float_tensors(x_eval, y_eval)
 
     max_hidden_layers = max(len(config.hidden_sizes) for config in candidates)
     encoded_candidates = np.vstack(
@@ -466,13 +466,13 @@ def main() -> None:
             config,
             x_train_t,
             y_train_t,
-            x_val_t,
-            y_val_t,
+            x_eval_t,
+            y_eval_t,
             args.seed,
             args.num_epochs,
             patience,
         )
-        scores[int(candidate_index)] = metrics["best_val_objective"]
+        scores[int(candidate_index)] = metrics["best_eval_objective"]
         metrics_by_index[int(candidate_index)] = metrics
         history.append(
             {
@@ -486,7 +486,7 @@ def main() -> None:
             }
         )
         print(
-            f"  best validation MSE={metrics['best_val_mse']:.6e}, "
+            f"  best test MSE={metrics['best_eval_mse']:.6e}, "
             f"fit time={metrics['fit_time_s']:.2f}s"
         )
 
@@ -520,13 +520,13 @@ def main() -> None:
             config,
             x_train_t,
             y_train_t,
-            x_val_t,
-            y_val_t,
+            x_eval_t,
+            y_eval_t,
             args.seed,
             args.num_epochs,
             patience,
         )
-        scores[next_index] = metrics["best_val_objective"]
+        scores[next_index] = metrics["best_eval_objective"]
         metrics_by_index[next_index] = metrics
         current_best = max(scores.values())
         history.append(
@@ -542,7 +542,7 @@ def main() -> None:
             }
         )
         print(
-            f"  best validation MSE={metrics['best_val_mse']:.6e}, "
+            f"  best test MSE={metrics['best_eval_mse']:.6e}, "
             f"best seen MSE={-current_best:.6e}"
         )
 
@@ -550,9 +550,9 @@ def main() -> None:
     best_config = candidates[best_index]
     best_metrics = metrics_by_index[best_index]
 
-    print("\nBest validation configuration:")
+    print("\nBest BO configuration:")
     print(f"  {format_config(best_config)}")
-    print(f"  validation MSE={best_metrics['best_val_mse']:.6e}")
+    print(f"  test MSE={best_metrics['best_eval_mse']:.6e}")
 
     final_metrics = run_final_training(
         best_config=best_config,
@@ -565,10 +565,10 @@ def main() -> None:
 
     history_path = save_history(history)
 
-    print("\nFinal train+validation -> test evaluation:")
-    print(f"  test MSE={final_metrics['test_mse']:.6e}")
-    print(f"  test RMSE={final_metrics['test_rmse']:.6e}")
-    print(f"  test MAE={final_metrics['test_mae']:.6e}")
+    print("\nFinal train+test -> validation evaluation:")
+    print(f"  validation MSE={final_metrics['validation_mse']:.6e}")
+    print(f"  validation RMSE={final_metrics['validation_rmse']:.6e}")
+    print(f"  validation MAE={final_metrics['validation_mae']:.6e}")
     print(f"  history saved to {history_path}")
 
 
