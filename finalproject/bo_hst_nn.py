@@ -19,6 +19,7 @@ poetry run python finalproject/bo_hst_nn.py
 poetry run python finalproject/bo_hst_nn.py --num_epochs 200 --num_init 6 --num_iter 12
 poetry run python finalproject/bo_hst_nn.py --acquisition UCB --kappa 2.5
 poetry run python finalproject/bo_hst_nn.py --layer_widths 32 64 128 --max_layers 3
+poetry run python finalproject/bo_hst_nn.py --dataset_variant full
 """
 
 from __future__ import annotations
@@ -46,6 +47,10 @@ from surmod import neural_network as nn
 
 DEFAULT_LAYER_WIDTHS = [8 * n for n in range(1, 10)]
 DEFAULT_MAX_LAYERS = 3
+DATASET_VARIANT_DIRS = {
+    "reduced": "HST-drag",
+    "full": "HST-drag-full",
+}
 
 
 @dataclass(frozen=True)
@@ -178,20 +183,52 @@ def parse_arguments() -> argparse.Namespace:
         default=DEFAULT_MAX_LAYERS,
         help="Maximum number of hidden layers.",
     )
+    parser.add_argument(
+        "--dataset_variant",
+        type=str,
+        choices=sorted(DATASET_VARIANT_DIRS),
+        default="reduced",
+        help="Which prepared HST dataset split directory to load from data/.",
+    )
+    parser.add_argument(
+        "--data_dir",
+        type=Path,
+        default=None,
+        help="Optional explicit directory containing train.csv, test.csv, and validation.csv.",
+    )
 
     return parser.parse_args()
 
 
-def get_data_paths() -> tuple[Path, Path, Path]:
+def get_data_paths(
+    dataset_variant: str,
+    data_dir: Path | None,
+) -> tuple[Path, Path, Path]:
     """Return absolute paths to the HST drag split files."""
     repo_root = Path(__file__).resolve().parent.parent
-    data_dir = repo_root / "data" / "HST-drag"
-    return data_dir / "train.csv", data_dir / "validation.csv", data_dir / "test.csv"
+    resolved_data_dir = (
+        data_dir
+        if data_dir is not None
+        else repo_root / "data" / DATASET_VARIANT_DIRS[dataset_variant]
+    )
+    if not resolved_data_dir.is_absolute():
+        resolved_data_dir = repo_root / resolved_data_dir
+    return (
+        resolved_data_dir / "train.csv",
+        resolved_data_dir / "validation.csv",
+        resolved_data_dir / "test.csv",
+    )
 
 
-def load_hst_splits() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def load_hst_splits(
+    dataset_variant: str,
+    data_dir: Path | None,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Load train/validation/test HST drag dataframes."""
-    train_path, validation_path, test_path = get_data_paths()
+    train_path, validation_path, test_path = get_data_paths(
+        dataset_variant=dataset_variant,
+        data_dir=data_dir,
+    )
     traindf, testdf, validationdf = data_processing.load_data_from_file(
         dataset="HST",
         train_path=str(train_path),
@@ -516,7 +553,16 @@ def main() -> None:
             f"{len(candidates)} unique candidates are available."
         )
 
-    traindf, validationdf, testdf = load_hst_splits()
+    train_path, validation_path, test_path = get_data_paths(
+        dataset_variant=args.dataset_variant,
+        data_dir=args.data_dir,
+    )
+    print(f"Using HST split files from: {train_path.parent}")
+
+    traindf, validationdf, testdf = load_hst_splits(
+        dataset_variant=args.dataset_variant,
+        data_dir=args.data_dir,
+    )
     x_train, y_train = dataframe_to_arrays(traindf)
     x_eval, y_eval = dataframe_to_arrays(testdf)
 
