@@ -44,7 +44,7 @@ from surmod import data_processing
 from surmod import gaussian_process_regression as gp
 from surmod import neural_network as nn
 
-DEFAULT_LAYER_WIDTHS = [8 * n for n in range(1, 9)]
+DEFAULT_LAYER_WIDTHS = [8 * n for n in range(1, 10)]
 DEFAULT_MAX_LAYERS = 3
 
 
@@ -155,14 +155,14 @@ def parse_arguments() -> argparse.Namespace:
         "--batch_sizes",
         type=int,
         nargs="+",
-        default=[32, 64, 128, 256],
+        default=[16, 32, 64, 128, 256],
         help="Batch sizes included in the discrete search space.",
     )
     parser.add_argument(
         "--learning_rates",
         type=float,
         nargs="+",
-        default=[6e-4, 1e-3, 4e-3, 7e-3, 1e-2],
+        default=[1e-3, 5e-3, 1e-2, 5e-2],
         help="Learning rates included in the discrete search space.",
     )
     parser.add_argument(
@@ -508,8 +508,8 @@ def main() -> None:
         raise ValueError("The hyperparameter search space is empty.")
 
     total_evaluations = args.num_init + args.num_iter
-    if args.num_init < 2:
-        raise ValueError("--num_init must be at least 2 for GP-based BO.")
+    # if args.num_init < 2:
+    #     raise ValueError("--num_init must be at least 2 for GP-based BO.")
     if total_evaluations > len(candidates):
         raise ValueError(
             f"Requested {total_evaluations} evaluations, but only "
