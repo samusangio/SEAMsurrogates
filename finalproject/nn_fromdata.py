@@ -147,19 +147,18 @@ def main():
     verbose_plot = args.verbose_plot
     fromFile = args.file
 
-    # Check data availability
-    num_samples = num_test + num_train
-    if num_samples > 10000:
-        raise ValueError(
-            f"Requested samples ({num_samples}) exceed existing dataset(s) size "
-            "limit (10000)."
-        )
-
     # Weight initialization (normal with mean = 0, sd = 0.1)
     initialize_weights_normal = True
 
     # Load data into data frame and split into train and test sets
     if not fromFile:
+        # Check data availability
+        num_samples = num_test + num_train
+        if num_samples > 10000:
+            raise ValueError(
+                f"Requested samples ({num_samples}) exceed existing dataset(s) size "
+                "limit (10000)."
+            )
         # use this for one dataset 
         df = data_processing.load_data(dataset= data, n_samples=num_samples, random=False)
         print("Data subset shape:", df.shape)
@@ -170,10 +169,12 @@ def main():
         # use this for already split import from files - imports all data from file, no need to specify -tr -te numbers
         traindf, testdf, validationdf = data_processing.load_data_from_file(
             dataset="HST",
-            train_path="../data/HST-drag/train.csv",
-            test_path="../data/HST-drag/test.csv",
-            validation_path="../data/HST-drag/validation.csv",
+            train_path="../data/HST-drag-full/train.csv",
+            test_path="../data/HST-drag-full/test.csv",
+            validation_path="../data/HST-drag-full/validation.csv",
         )
+        if num_test > len(testdf) or num_train > len(traindf):
+            raise ValueError( f"Requested samples exceed existing dataset(s) size " )       
         #x_train, x_test, y_train, y_test = data_processing.prepare_train_test_arrays( traindf=traindf, testdf=testdf,) #use full dataset
         x_train, x_test, y_train, y_test = data_processing.prepare_train_test_arrays(
             traindf=traindf,
@@ -183,6 +184,8 @@ def main():
             n_test=num_test,
             seed=seed,
         )
+
+        del traindf, testdf, validationdf
 
     # Standardize inputs using training-set statistics only.
     x_scaler = StandardScaler()
@@ -207,6 +210,7 @@ def main():
         batch_size,
         seed,
         initialize_weights_normal,
+        patience=30
     )
 
     if verbose_plot:
